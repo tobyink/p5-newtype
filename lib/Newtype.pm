@@ -383,6 +383,8 @@ L<https://github.com/tobyink/p5-newtype/issues>.
 
 L<Type::Tiny::Class>, L<Subclass::Of>.
 
+L<https://wiki.haskell.org/Newtype>.
+
 =head1 AUTHOR
 
 Toby Inkster E<lt>tobyink@cpan.orgE<gt>.
