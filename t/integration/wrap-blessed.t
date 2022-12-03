@@ -60,4 +60,8 @@ isa_ok( $bar->def, 'Local::Foo' );
 isa_ok( $bar->bleh, 'Local::Bar::Newtype::MyFoo' );
 isa_ok( $bar->bleh, 'Local::Foo' );
 
+ok Local::Bar::is_MyFoo( $bar->bleh );
+Local::Bar::assert_MyFoo( $bar->bleh );
+isa_ok( Local::Bar::to_MyFoo( 'Local::Foo'->new ), 'Local::Bar::Newtype::MyFoo' );
+
 done_testing;

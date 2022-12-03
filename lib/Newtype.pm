@@ -318,6 +318,12 @@ For example:
   
   my $ua = UA( HTTP::Tiny->new );
 
+I<< Note: >> you also get C<is_Foo>, C<assert_Foo>, and C<to_Foo>
+functions imported! C<< is_Foo( $x ) >> checks if C<< $x >> is a B<Foo>
+object and returns a boolean. C<< assert_Foo( $x ) >> does the same,
+but dies if it fails. C<< to_Foo( $x ) >> attempts to coerce C<< $x >>
+to a B<Foo> object.
+
 =head2 Integration with Moose, Mouse, and Moo
 
 If your imported newtype is B<Foo>, then calling C<< Foo() >> with no
