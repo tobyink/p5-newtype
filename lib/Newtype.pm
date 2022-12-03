@@ -50,6 +50,7 @@ sub new {
 	return $type;
 }
 
+sub kind       { $_[0]{kind} }
 sub inner_type { $_[0]{inner} }
 
 sub exportables {
@@ -136,20 +137,22 @@ sub _make_newclass {
 				$$self->$method( @_ );
 			}
 			sub isa {
-				my $self = shift;
-				$$self->isa( @_ ) or
-					$self->UNIVERSAL::isa( @_ );
+				my ( $self, $c ) = @_;
+				$c = $c->class if Scalar::Util::blessed($c) && $c->can('class');
+				$$self->isa( $c ) or
+					$self->UNIVERSAL::isa( $c );
 			}
 			sub DOES {
-				my $self = shift;
-				$_[0] eq 'Newtype' or
-					$$self->isa( @_ ) or
-					$self->UNIVERSAL::DOES( @_ );
+				my ( $self, $r ) = @_;
+				$r = $r->class if Scalar::Util::blessed($r) && $r->can('class');
+				$r eq 'Newtype' or
+					$$self->isa( $r ) or
+					$self->UNIVERSAL::DOES( $r );
 			}
 			sub can {
-				my $self = shift;
-				$$self->can( @_ ) or
-					$self->UNIVERSAL::can( @_ );
+				my ( $self, $m ) = @_;
+				$$self->can( $m ) or
+					$self->UNIVERSAL::can( $m );
 			}
 		};
 	}
@@ -200,7 +203,77 @@ Newtype - Perl implementation of an approximation for Haskell's newtype
 
 =head1 SYNOPSIS
 
+  package MyClass;
+  
+  use HTTP::Tiny ();
+  use Newtype HttpTiny => { inner => 'HTTP::Tiny' };
+  
+  use Moo;
+  
+  has ua => (
+    is => 'ro',
+    isa => HttpTiny(),
+    coerce => 1,
+  );
+
 =head1 DESCRIPTION
+
+This module allows you to create a new type which is a subclass of an existing
+type.
+
+Why?
+
+Well maybe you want to add some new methods to the new type:
+
+  use HTTP::Tiny ();
+  use Newtype HttpTiny => {
+    inner => 'HTTP::Tiny',
+    methods => {
+      'post_or_get' => sub {
+        my $self = shift;
+        my $res = $self->post( @_ );
+        return $res if $res->{success};
+        return $self->get( @_ );
+      },
+  };
+
+Or maybe you need to differentiate between two different kinds of things
+which otherwise the same class.
+
+  use Newtype (
+    SecureUA    => { inner => 'HTTP::Tiny' },
+    InsecureUA  => { inner => 'HTTP::Tiny' },
+  );
+  
+  ...;
+  
+  my $ua = InsecureUA( HTTP::Tiny->new );
+  
+  ...;
+  
+  if ( $ua->isa(SecureUA) ) {
+    ...;
+  }
+
+Newtype can also create new types which "inherit" from Perl builtins.
+
+  use Types::Common qw( ArrayRef PositiveInt );
+  use Newtype Numbers => { inner => ArrayRef[PositiveInt] };
+  
+  my $nums = Numbers( [] );
+  $nums->push(  1 );
+  $nums->push(  2 );
+  $nums->push( -1 );  # dies
+
+=head2 Creating a newtype
+
+=head2 Creating values belonging to the newtype
+
+=head2 Integration with Moose, Mouse, and Moo
+
+=head2 Accessing the inner value
+
+=head2 Introspection
 
 =head1 BUGS
 
@@ -208,6 +281,8 @@ Please report any bugs to
 L<https://github.com/tobyink/p5-newtype/issues>.
 
 =head1 SEE ALSO
+
+L<Type::Tiny::Class>, L<Subclass::Of>.
 
 =head1 AUTHOR
 
