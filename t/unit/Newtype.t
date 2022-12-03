@@ -26,9 +26,10 @@ use Data::Dumper;
 
 describe "class `$CLASS`" => sub {
 
-	tests 'blah blah blah' => sub {
+	tests 'meta' => sub {
 	
-		pass;
+		ok $CLASS->isa( 'Type::Tiny::Class' );
+		ok $CLASS->isa( 'Type::Tiny' );
 	};
 };
 

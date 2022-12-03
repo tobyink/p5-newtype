@@ -23,7 +23,11 @@ the same terms as the Perl 5 programming language system itself.
 use Test2::V0;
 
 my @modules = qw(
-	Carp
+	Moo
+	namespace::autoclean
+	Sub::HandlesVia
+	Type::Tiny::Class
+	Types::Standard
 );
 
 diag "\n####";
