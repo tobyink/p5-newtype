@@ -238,7 +238,7 @@ Well maybe you want to add some new methods to the new type:
   };
 
 Or maybe you need to differentiate between two different kinds of things
-which otherwise the same class.
+which are otherwise the same class.
 
   use Newtype (
     SecureUA    => { inner => 'HTTP::Tiny' },
@@ -265,15 +265,108 @@ Newtype can also create new types which "inherit" from Perl builtins.
   $nums->push(  2 );
   $nums->push( -1 );  # dies
 
+See L<Hydrogen> for the list of available methods for builtins.
+
 =head2 Creating a newtype
+
+The general form for creating newtypes is:
+
+  use Newtype $typename => {
+    inner => $inner_type,
+    %other_options,
+  };
+
+The inner type is required, and must be either a string class name or
+a L<Type::Tiny> type constraint indicating what type of thing you want
+to wrap.
+
+Other supported options are:
+
+=over
+
+=item C<methods>
+
+A hashref of methods to add to the newtype. Keys are the method names.
+Values are coderefs.
+
+=item C<coercions>
+
+(TODO)
+
+=item C<kind>
+
+This allows you to give Newtype a hint for how to delegate to the inner
+value. Supported kinds (case-sensitive) are: Array, Bool, Code, Counter,
+Hash, Number, Object, and String. Usually Newtype will be able to guess
+based on C<inner> though.
+
+=back
 
 =head2 Creating values belonging to the newtype
 
+When you import a newtype B<Foo>, you import a function C<< Foo() >>
+into your namespace. You can create instances of the newtype using:
+
+  Foo( $inner_value )
+
+Where C<< $inner_value >> is an instance of the thing you're wrapping.
+
+For example:
+
+  use HTTP::Tiny;
+  use Newtype UA => { inner => 'HTTP::Tiny' };
+  
+  my $ua = UA( HTTP::Tiny->new );
+
 =head2 Integration with Moose, Mouse, and Moo
+
+If your imported newtype is B<Foo>, then calling C<< Foo() >> with no
+arguments will return a L<Type::Tiny> type constraint for the newtype.
+
+  use HTTP::Tiny;
+  use Newtype UA => { inner => 'HTTP::Tiny' };
+  
+  use Moo;
+  has my_ua => ( is => 'ro', isa => UA() );
+
+Now people instantiating your class will need to pass you a wrapped
+HTTP::Tiny object instead of passing a normal HTTP::Tiny object. You may
+wish to allow them to pass you a normal HTTP::Tiny object though.
+That should be easy with coercions:
+
+  has my_ua => ( is => 'ro', isa => UA(), coerce => 1 );
 
 =head2 Accessing the inner value
 
+You can access the original wrapped value using the C<< INNER >> method.
+
+  my $ua = UA( HTTP::Tiny->new );
+  my $http_tiny_object = $ua->INNER;
+
 =head2 Introspection
+
+If your newtype is called B<MyNewtype>, then you can introspect it using
+a few methods:
+
+=over
+
+=item C<< MyNewtype->class >>
+
+The class powering the newtype.
+
+=item C<< MyNewtype->inner >>
+
+The type constraint for the inner value.
+
+=item C<< MyNewtype->kind >>
+
+The kind of delegation being used.
+
+=back
+
+The object returned by C<< MyNewtype() >> is also a L<Type::Tiny> object,
+so you can call any method from L<Type::Tiny>, such as
+C<< MyNewtype->check( $value ) >>.
 
 =head1 BUGS
 
