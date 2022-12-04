@@ -71,7 +71,7 @@ sub _build_kind {
 	return 'Counter'  if $inner_type->is_a_type_of( Int );
 	return 'Hash'     if $inner_type->is_a_type_of( HashRef );
 	return 'Number'   if $inner_type->is_a_type_of( StrictNum )
-	                  || $inner_type->is_a_type_of( LaxNum );
+	                  || $inner_type->is_a_type_of( LaxNum ); ##WS
 	return 'Object'   if $inner_type->is_a_type_of( Object );
 	return 'String'   if $inner_type->is_a_type_of( Str );
 
