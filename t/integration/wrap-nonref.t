@@ -32,6 +32,9 @@ BEGIN {
 		isa => MyNum(),
 		coerce => 1,
 	);
+	sub bleh {
+		MyNum->new( 456 );
+	}
 };
 
 my $bar = 'Local::Bar'->new(
@@ -48,5 +51,9 @@ my $e = dies {
 	$bar->def->add( -1_000 );
 };
 like $e, qr/Must be a positive number/;
+
+my $num = Local::Bar::bleh();
+isa_ok( $num, 'Local::Bar::Newtype::MyNum' );
+ok( $num == 456 );
 
 done_testing;

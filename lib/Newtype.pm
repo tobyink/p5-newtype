@@ -10,8 +10,10 @@ our $VERSION   = '0.001';
 use Type::Tiny::Class 2.000000;
 use parent 'Type::Tiny::Class';
 
-use Types::Common -types;
-use namespace::autoclean;
+use B qw( perlstring );
+use Eval::TypeTiny qw( eval_closure set_subname );
+use Types::Common qw( -types -is );
+#use namespace::autoclean;
 
 sub _exporter_fail {
 	my ( $class, $name, $opts, $globals ) = @_;
@@ -19,174 +21,367 @@ sub _exporter_fail {
 
 	$opts->{caller} = $caller;
 	$opts->{name}   = $name;
-	$opts->{class}  = sprintf '%s::Newtype::%s', $opts->{caller}, $opts->{name};
+	$opts->{class}  = $class->_make_newclass_name( $opts );
+
 	my $type = $class->new( $opts );
 
 	$INC{'Type/Registry.pm'}
 		? 'Type::Registry'->for_class( $caller )->add_type( $type )
 		: ( $Type::Registry::DELAYED{$caller}{$type->name} = $type )
 		unless( ref($caller) or $caller eq '-lexical' or $globals->{'lexical'} );
-	return map +( $_->{name} => $_->{code} ), @{ $type->exportables };
+
+	return map +( $_->{name} => $_->{code} ), @{ $type->newtype_exportables };
 }
 
 sub new {
 	my $class = shift;
-	my %opts = ( @_ == 1 and ref $_[0] ) ? %{ $_[0] } : @_;
-	
-	my $inner = $opts{inner}
-		or die "Expected option: inner";
-	if ( not ref $inner ) {
-		$opts{inner} = $inner = 'Type::Tiny::Class'->new( class => $inner );
+
+	if ( is_Object $class ) {
+		my $real_class = $class->class;
+		return $real_class->new( @_ );
 	}
-	
-	use B ();
-	my $type = $class->SUPER::new( %opts );
-	$type->_make_newclass;
-	my $coercion = sprintf(
-		q{do { my $x = $_; bless( \$x, %s ) }},
-		B::perlstring( $opts{class} ),
-	);
-	$type->coercion->add_type_coercions( $inner, $coercion );
-	return $type;
+
+	my %opts = ( @_ == 1 and is_HashRef $_[0] ) ? %{ $_[0] } : @_;
+
+	if ( is_Undef $opts{inner} ) {
+		die "Expected option: inner";
+	}
+	elsif ( is_Str $opts{inner} ) {
+		$opts{inner} = 'Type::Tiny::Class'->new( class => $opts{inner} );
+	}
+
+	return $class
+		->SUPER::new( %opts )
+		->_make_newclass()
+		->_make_coercions();
 }
 
-sub kind       { $_[0]{kind} }
+# Attributes
 sub inner_type { $_[0]{inner} }
+sub kind       { $_[0]{kind}  ||= $_[0]->_build_kind }
 
-sub exportables {
+sub _build_kind {
 	my $self = shift;
-	my @orig = @{ $self->SUPER::exportables( @_ ) };
-	my @drop = grep { $_->{tags}[0] eq 'types' } @orig;
-	my @keep = grep { $_->{tags}[0] ne 'types' } @orig;
+	my $inner_type = $self->inner_type;
 
-	return [
-		$self->_newtype_exportables( @drop ),
-		@keep,
-	];
+	return 'Array'    if $inner_type->is_a_type_of( ArrayRef );
+	return 'Bool'     if $inner_type->is_a_type_of( Bool );
+	return 'Code'     if $inner_type->is_a_type_of( CodeRef );
+	return 'Counter'  if $inner_type->is_a_type_of( Int );
+	return 'Hash'     if $inner_type->is_a_type_of( HashRef );
+	return 'Number'   if $inner_type->is_a_type_of( StrictNum )
+	                  || $inner_type->is_a_type_of( LaxNum );
+	return 'Object'   if $inner_type->is_a_type_of( Object );
+	return 'String'   if $inner_type->is_a_type_of( Str );
+
+	die "Could not determine kind of inner type. Specify 'kind' option";
 }
 
-sub _newtype_exportables {
-	my ( $self, $old ) = @_;
-	my %old = %$old;
-	$old{code} = sub (;$) {
-		my ( $inner_value, @rest ) = @_
-			or return $self;
-		my $wrapped_value = bless( \$inner_value, $self->{class} );
-		wantarray ? ( $wrapped_value, @rest ) : $wrapped_value;
-	};
-	return ( \%old );
+sub newtype_exportables {
+	my $self = shift;
+	my @exportables = @{ $self->exportables( @_ ) };
+	for my $e ( @exportables ) {
+		if ( $e->{tags}[0] eq 'types' ) {
+			$e->{code} = sub (;$) {
+				my ( $inner_value, @rest ) = @_
+					or return $self;
+				my $wrapped_value = bless( \$inner_value, $self->{class} );
+				wantarray ? ( $wrapped_value, @rest ) : $wrapped_value;
+			};
+		}
+	}
+	\@exportables;
+}
+
+sub _make_newclass_name {
+	my ( $class, $opts ) = @_;
+	return sprintf '%s::Newtype::%s', $opts->{caller}, $opts->{name};
 }
 
 sub _make_newclass {
 	my ( $self ) = @_;
 
-	my $inner = $self->inner_type;
-	my $kind = 'Object';
-	my $overload;
-	if ( $self->{kind} ) {
-		$kind = $self->{kind};
-	}
-	elsif ( $inner->is_a_type_of( ArrayRef ) ) {
-		$kind = 'Array';
-		$overload = '( q[@{}] => sub { ${+shift} }, bool => sub { !!1 }, fallback => 1 )';
-	}
-	elsif ( $inner->is_a_type_of( Bool ) ) {
-		$kind = 'Bool';
-		$overload = '( bool => sub { !!${+shift} }, fallback => 1 )';
-	}
-	elsif ( $inner->is_a_type_of( CodeRef ) ) {
-		$kind = 'Code';
-		$overload = '( q[&{}] => sub { ${+shift} }, bool => sub { !!1 }, fallback => 1 )';
-	}
-	elsif ( $inner->is_a_type_of( Int ) ) {
-		$kind = 'Counter';
-		$overload = '( q[0+] => sub { ${+shift} }, bool => sub { ${+shift} }, fallback => 1 )';
-	}
-	elsif ( $inner->is_a_type_of( HashRef ) ) {
-		$kind = 'Hash';
-		$overload = '( q[%{}] => sub { ${+shift} }, bool => sub { !!1 }, fallback => 1 )';
-	}
-	elsif ( $inner->is_a_type_of( Num ) ) {
-		$kind = 'Number';
-		$overload = '( q[0+] => sub { ${+shift} }, bool => sub { ${+shift} }, fallback => 1 )';
-	}
-	elsif ( $inner->is_a_type_of( Str ) ) {
-		$kind = 'String';
-		$overload = '( q[""] => sub { ${+shift} }, bool => sub { ${+shift} }, fallback => 1 )';
-	}
-	$self->{kind} = $kind;
-
 	my $class = $self->class;
-	my $perl_code = "package $class;\n";
-	$perl_code .= "use overload $overload;\n" if defined $overload;
-	$perl_code .= q{
-		sub INNER {
-			my $self = shift;
-			$$self;
-		}
-	};
-	if ( $kind eq 'Object' ) {
-		$perl_code .= q{
-			sub AUTOLOAD {
+	$self
+		->_make_newclass_basics( $class )
+		->_make_newclass_overloading( $class )
+		->_make_newclass_metamethods( $class )
+		->_make_newclass_native_methods( $class )
+		->_make_newclass_custom_methods( $class );
+
+	return $self;
+}
+
+sub _make_newclass_basics {
+	my ( $self, $class ) = @_;
+
+	my $inner_name = sprintf( '%s::INNER', $class );
+	my $inner_code = eval_closure(
+		environment => {},
+		source => q{
+			sub {
 				my $self = shift;
-				my ( $method ) = ( our $AUTOLOAD =~ /::(\w+)$/ );
+				$$self;
+			}
+		},
+	);
+
+	my $constructor_name = sprintf( '%s::new', $class );
+	my $constructor_code = eval_closure(
+		environment => {},
+		source => q{
+			sub {
+				my ( $class, $inner_value ) = @_;
+				bless( \$inner_value, $class );
+			}
+		},
+	);
+
+	{
+		no strict 'refs';
+		*{$inner_name}       = set_subname( $inner_name,       $inner_code       );
+		*{$constructor_name} = set_subname( $constructor_name, $constructor_code );
+	}
+
+	return $self;
+}
+
+sub _make_newclass_overloading {
+	my ( $self, $class ) = @_;
+
+	my $overloading = {
+		Array     => '( q[@{}] => sub { ${+shift} }, bool => sub { !!1 }, fallback => 1 )',
+		Bool      => '( bool => sub { !!${+shift} }, fallback => 1 )',
+		Code      => '( q[&{}] => sub { ${+shift} }, bool => sub { !!1 }, fallback => 1 )',
+		Counter   => '( q[0+] => sub { ${+shift} }, bool => sub { ${+shift} }, fallback => 1 )',
+		Hash      => '( q[%{}] => sub { ${+shift} }, bool => sub { !!1 }, fallback => 1 )',
+		Number    => '( q[0+] => sub { ${+shift} }, bool => sub { ${+shift} }, fallback => 1 )',
+		String    => '( q[""] => sub { ${+shift} }, bool => sub { ${+shift} }, fallback => 1 )',
+	}->{ $self->kind } or return $self;
+
+	local $@;
+	eval "package $class; use overload $overloading; 1" or die( $@ );
+
+	return $self;
+}
+
+sub _make_newclass_metamethods {
+	my ( $self, $class ) = @_;
+
+	my $kind = $self->kind;
+	my $known_class = $self->inner_type->find_parent( sub {
+		$_->isa( 'Type::Tiny::Class' );
+	} );
+
+	if ( $kind eq 'Object' and is_Defined $known_class ) {
+		return $self->_make_newclass_metamethods_for_known_class( $class, $known_class->class );
+	}
+	elsif ( $kind eq 'Object' ) {
+		return $self->_make_newclass_metamethods_for_generic_object( $class );
+	}
+	else {
+		return $self->_make_newclass_metamethods_for_kind( $class, $kind );
+	}
+}
+
+sub _make_newclass_metamethods_for_known_class {
+	my ( $self, $class, $parent_class ) = @_;
+
+	local $@;
+	eval q|
+		package | . $class . q|;
+		sub AUTOLOAD {
+			my $self = shift;
+			my ( $method ) = ( our $AUTOLOAD =~ /::(\w+)$/ );
+			if ( ref($self) ) {
 				if ( $method eq 'DESTROY' ) {
 					my $found = $$self->can( 'DESTROY' ) or return;
 					return $$self->$found( @_ );
 				}
-				$$self->$method( @_ );
+				return $$self->$method( @_ );
 			}
-			sub isa {
-				my ( $self, $c ) = @_;
-				$c = $c->class if Scalar::Util::blessed($c) && $c->can('class');
-				$$self->isa( $c ) or
-					$self->UNIVERSAL::isa( $c );
+			else {
+				return "| . $parent_class . q|"->$method( @_ );
 			}
-			sub DOES {
-				my ( $self, $r ) = @_;
-				$r = $r->class if Scalar::Util::blessed($r) && $r->can('class');
-				$r eq 'Newtype' or
-					$$self->isa( $r ) or
-					$self->UNIVERSAL::DOES( $r );
-			}
-			sub can {
-				my ( $self, $m ) = @_;
-				$$self->can( $m ) or
-					$self->UNIVERSAL::can( $m );
-			}
-		};
-	}
-	local $@;
-	eval "$perl_code; 1" or die( $@ );
-	
-	if ( $kind ne 'Object' ) {
-		require Sub::HandlesVia::CodeGenerator;
-		my $gen = 'Sub::HandlesVia::CodeGenerator'->new(
-			target => $class,
-			attribute => 'Newtype',
-			isa => $inner,
-			coerce => $inner->has_coercion(),
-			generator_for_self => sub { '$_[0]' },
-			generator_for_slot => sub { my ( $g ) = @_; sprintf '${%s}', $g->generate_self },
-			generator_for_get => sub { my ( $g ) = @_; $g->generate_slot },
-			generator_for_set => sub { my ( $g, $v ) = @_; sprintf '(%s=%s)', $g->generate_slot, $v },
-			generator_for_default => sub { 'undef' }, # XXX
-			get_is_lvalue => !!1,
-			set_checks_isa => !!0,
-		);
-		my $shv_lib = "Sub::HandlesVia::HandlerLibrary::$kind";
-		eval "require $shv_lib; 1" or die( $@ );
-		for my $h_name ( $shv_lib->handler_names ) {
-			my $h = $shv_lib->get_handler( $h_name );
-			$gen->generate_and_install_method( $h_name, $h );
 		}
+		sub isa {
+			my ( $self, $c ) = @_;
+			$c = $c->class if Scalar::Util::blessed($c) && $c->can('class');
+			ref($self) && $$self->isa( $c ) or
+				"| . $parent_class . q|"->isa( $c ) or
+				$self->UNIVERSAL::isa( $c );
+		}
+		sub DOES {
+			my ( $self, $r ) = @_;
+			$r = $r->class if Scalar::Util::blessed($r) && $r->can('class');
+			$r eq 'Newtype' or
+				$r eq 'Object' or
+				ref($self) && $$self->DOES( $r ) or
+				"| . $parent_class . q|"->DOES( $r ) or
+				$self->UNIVERSAL::DOES( $r );
+		}
+		sub can {
+			my ( $self, $m ) = @_;
+			ref($self) && $$self->can( $m ) or
+				"| . $parent_class . q|"->can( $m ) or
+				$self->UNIVERSAL::can( $m );
+		}
+		1;
+	| or die( $@ );
+
+	return $self;
+}
+
+sub _make_newclass_metamethods_for_generic_object {
+	my ( $self, $class ) = @_;
+
+	local $@;
+	eval q|
+		package | . $class . q|;
+		sub AUTOLOAD {
+			my $self = shift;
+			ref($self) or return;
+			my ( $method ) = ( our $AUTOLOAD =~ /::(\w+)$/ );
+			if ( $method eq 'DESTROY' ) {
+				my $found = $$self->can( 'DESTROY' ) or return;
+				return $$self->$found( @_ );
+			}
+			$$self->$method( @_ );
+		}
+		sub isa {
+			my ( $self, $c ) = @_;
+			$c = $c->class if Scalar::Util::blessed($c) && $c->can('class');
+			ref($self) && $$self->isa( $c ) or
+				$self->UNIVERSAL::isa( $c );
+		}
+		sub DOES {
+			my ( $self, $r ) = @_;
+			$r = $r->class if Scalar::Util::blessed($r) && $r->can('class');
+			$r eq 'Newtype' or
+				$r eq 'Object' or
+				ref($self) && $$self->DOES( $r ) or
+				$self->UNIVERSAL::DOES( $r );
+		}
+		sub can {
+			my ( $self, $m ) = @_;
+			ref($self) && $$self->can( $m ) or
+				$self->UNIVERSAL::can( $m );
+		}
+		1;
+	| or die( $@ );
+
+	return $self;
+}
+
+sub _make_newclass_metamethods_for_kind {
+	my ( $self, $class, $kind ) = @_;
+
+	local $@;
+	eval q|
+		package | . $class . q|;
+		sub DOES {
+			my ( $self, $r ) = @_;
+			$r = $r->class if Scalar::Util::blessed($r) && $r->can('class');
+			$r eq 'Newtype' or
+				$r eq '| . $kind . q|' or
+				$self->UNIVERSAL::DOES( $r );
+		}
+		1;
+	| or die( $@ );
+
+	return $self;
+}
+
+sub _make_newclass_native_methods {
+	my ( $self, $class ) = @_;
+
+	my $kind = $self->kind;
+	return $self if $kind eq 'Object';
+
+	my $inner_type = $self->inner_type;
+	my $type_default = $inner_type->type_default // $self->_kind_default;
+
+	require Sub::HandlesVia::CodeGenerator;
+	my $gen = 'Sub::HandlesVia::CodeGenerator'->new(
+		env => { '$type_default' => \$type_default },
+		target => $class,
+		attribute => 'Newtype',
+		isa => $inner_type,
+		coerce => $inner_type->has_coercion(),
+		generator_for_self => sub { '$_[0]' },
+		generator_for_slot => sub { my ( $g ) = @_; sprintf '${%s}', $g->generate_self },
+		generator_for_get => sub { my ( $g ) = @_; $g->generate_slot },
+		generator_for_set => sub { my ( $g, $v ) = @_; sprintf '(%s=%s)', $g->generate_slot, $v },
+		generator_for_default => sub { sprintf('$type_default->()') },
+		get_is_lvalue => !!1,
+		set_checks_isa => !!0,
+	);
+
+	my $shv_lib = "Sub::HandlesVia::HandlerLibrary::$kind";
+	eval "require $shv_lib; 1" or die( $@ );
+
+	my %already;
+	for my $h_name ( $shv_lib->handler_names ) {
+		next if $already{$h_name}++;
+		my $h = $shv_lib->get_handler( $h_name );
+		$gen->generate_and_install_method( $h_name, $h );
 	}
+
+	return $self;
+}
+
+sub _kind_default {
+	my ( $self ) = @_;
+
+	return {
+		Array     => sub { [] },
+		Bool      => sub { !!0 },
+		Code      => sub { sub {} },
+		Counter   => sub { 0 },
+		Hash      => sub { {} },
+		Number    => sub { 0 },
+		String    => sub { '' },
+	}->{ $self->kind };
+}
+
+sub _make_newclass_custom_methods {
+	my ( $self, $class ) = @_;
+
+	no strict 'refs';
 
 	my %methods = %{ $self->{methods} // {} };
 	for my $name ( keys %methods ) {
-		no strict 'refs';
-		*{"$class\::$name"} = $methods{$name};
+		my $fq_name = "$class\::$name";
+		*{$fq_name} = set_subname( $fq_name, $methods{$name} );
 	}
+}
+
+sub _make_coercions {
+	my $self = shift;
+	my $class = $self->class;
+
+	my $inner_type = $self->inner_type;
+	my $coercion_from_inner_type = sprintf(
+		q{do { my $x = $_; bless( \$x, %s ) }},
+		perlstring( $class ),
+	);
+	$self->coercion->add_type_coercions(
+		$inner_type,
+		$coercion_from_inner_type,
+	);
+
+	if ( $inner_type->has_coercion ) {
+		$self->coercion->add_type_coercions(
+			$inner_type->coercibles(),
+			sub {
+				my $coerced_inner_value = $inner_type->coerce( $_ );
+				$inner_type->check( $coerced_inner_value ) or return $_;
+				return bless( \$coerced_inner_value, $class );
+			},
+		);
+	}
+
+	return $self;
 }
 
 1;
@@ -360,7 +555,7 @@ a few methods:
 
 The class powering the newtype.
 
-=item C<< MyNewtype->inner >>
+=item C<< MyNewtype->inner_type >>
 
 The type constraint for the inner value.
 
