@@ -465,6 +465,16 @@ Newtype can also create new types which "inherit" from Perl builtins.
 
 See L<Hydrogen> for the list of available methods for builtins.
 
+Newtypes which inherit from builtins use overloading to attempt to provide
+transparency.
+
+Although there will be exceptions to this general rule of thumb (especially
+if your newtype is inheriting from a Perl builtin), you can think of things
+like this: if you create a type B<NewFoo> from existing type B<Foo>, then
+instances of B<NewFoo> should be accepted everywhere instances of B<Foo> are.
+But instances of B<Foo> will not be automatically accepted where instances of
+B<NewFoo> are.
+
 =head2 Creating a newtype
 
 The general form for creating newtypes is:
@@ -567,6 +577,63 @@ The kind of delegation being used.
 The object returned by C<< MyNewtype() >> is also a L<Type::Tiny> object,
 so you can call any method from L<Type::Tiny>, such as
 C<< MyNewtype->check( $value ) >> or C<< MyNewtype->coerce( $value ) >>.
+
+=head1 EXAMPLES
+
+=head2 Using newtypes instead of named parameters
+
+Let's say you have a function like this:
+
+  sub run_processes {
+    my ( $runtime_processes, $startup_processes, $shutdown_processes ) = @_;
+    $_->() for @$startup_processes;
+    $_->() for @$runtime_processes;
+    $_->() for @$shutdown_processes;
+  }
+
+This function takes three arrayrefs of coderefs. It's very easy for the
+caller to forget what order to pass them in, and potentially pass them in
+the wrong order.
+
+Let's bring some newtypes into the mix:
+
+  use feature 'state';
+  use Types::Common qw( CodeRef, ArrayRef );
+  use Type::Params qw( signature );
+  use Newtype (
+    StartupProcessList  => { inner => ArrayRef[CodeRef] },
+    RuntimeProcessList  => { inner => ArrayRef[CodeRef] },
+    ShutdownProcessList => { inner => ArrayRef[CodeRef] },
+  );
+  
+  sub run_processes {
+    state $sig = signature positional => [
+      RuntimeProcessList->no_coercions,
+      StartupProcessList->no_coercions,
+      ShutdownProcessList->no_coercions,
+    ];
+    my ( $runtime_processes, $startup_processes, $shutdown_processes ) = &$sig;
+    $_->() for @$startup_processes;
+    $_->() for @$runtime_processes;
+    $_->() for @$shutdown_processes;
+  }
+
+Now your function no longer accepts bare arrayrefs. Instead the caller needs
+to convert their arrayrefs into your newtype. The need to call your function
+like this:
+
+  run_processes(
+    RuntimeProcessList( \@coderefs1 ),
+    StartupProcessList( \@coderefs2 ),
+    ShutdownProcessList( \@coderefs3 ),
+  );
+
+If they try to pass the lists in the wrong order, they'll get a type constraint
+error.
+
+Exporting the C<RuntimeProcessList>, C<StartupProcessList>, and
+C<ShutdownProcessList> functions to your caller is left as an exercise
+for the reader!
 
 =head1 BUGS
 
