@@ -24,7 +24,7 @@ use Test2::V0 -target => 'Newtype';
 use Test2::Tools::Spec;
 use Data::Dumper;
 
-use Types::Common qw( HashRef );
+use Types::Common qw( HashRef Int );
 use Type::Registry ();
 
 $Data::Dumper::Deparse = 1;
@@ -88,5 +88,157 @@ describe "method `_exporter_fail`" => sub {
 		};
 	};
 };
+
+describe "method `new`" => sub {
+
+	my ( $invocant, @args, $expected_exception, $expected_return, $also );
+
+	case 'when called on a blessed object' => sub {
+		my $inner_type_was_checked;
+
+		sub Local::Test2::new { shift; return [ @_ ] }
+
+		$invocant = mock( {}, add => [
+			class      => sub { return 'Local::Test2' },
+			inner_type => sub { return sub { ++$inner_type_was_checked; $_[0]; } }
+		] );
+
+		@args = 42;
+		$expected_exception = undef;
+		$expected_return = [ 42 ];
+
+		$also = sub {
+			ok( $inner_type_was_checked, 'inner type was checked during construction of wrapper object' );
+		};
+	};
+
+	case 'when called with string inner' => sub {
+		$invocant = $CLASS;
+		@args = (
+			caller => 'main',
+			name   => 'Test3',
+			inner  => 'Local::Test3',
+		);
+		$expected_exception = undef;
+		$expected_return = object {
+			prop isa => 'Newtype';
+			prop isa => 'Type::Tiny';
+			call class => 'main::Newtype::Test3';
+			call inner_type => object {
+				prop isa => 'Type::Tiny::Class';
+				call class => 'Local::Test3';
+			};
+		};
+		$also = undef;
+	};
+
+	case 'when called with type constraint inner' => sub {
+		$invocant = $CLASS;
+		@args = (
+			caller => 'main',
+			name   => 'Test4',
+			inner  => HashRef,
+		);
+		$expected_exception = undef;
+		$expected_return = object {
+			prop isa => 'Newtype';
+			prop isa => 'Type::Tiny';
+			call class => 'main::Newtype::Test4';
+			call inner_type => object {
+				prop isa => 'Type::Tiny';
+				call name => HashRef->name;
+			};
+		};
+		$also = undef;
+	};
+
+	case 'when called with no inner' => sub {
+		$invocant = $CLASS;
+		@args = (
+			caller => 'main',
+			name   => 'Test5',
+		);
+		$expected_exception = match( qr/^Expected option: inner/ );
+		$expected_return = undef;
+		$also = undef;
+	};
+
+	case 'when called with type constraint inner (hashref edition!)' => sub {
+		$invocant = $CLASS;
+		@args = ( {
+			caller => 'main',
+			name   => 'Test6',
+			inner  => HashRef,
+		} );
+		$expected_exception = undef;
+		$expected_return = object {
+			prop isa => 'Newtype';
+			prop isa => 'Type::Tiny';
+			call class => 'main::Newtype::Test6';
+			call inner_type => object {
+				prop isa => 'Type::Tiny';
+				call name => HashRef->name;
+			};
+		};
+		$also = undef;
+	};
+
+	tests 'it works' => sub {
+
+		my $got_return;
+		my $got_exception = dies {
+			$got_return = Newtype::new( $invocant, @args );
+		};
+
+		is(
+			$got_exception,
+			$expected_exception,
+			defined( $expected_exception ) ? 'expected exception' : 'no exception',
+		);
+
+		is(
+			$got_return,
+			$expected_return,
+			defined( $expected_return ) ? 'expected return value' : 'no return value',
+		);
+		
+		$also->() if $also;
+	};
+};
+
+describe "attribute `inner_type`" => sub {
+
+	tests 'it works' => sub {
+
+		my $newtype = $CLASS->new(
+			inner  => Int,
+			name   => 'MyInt',
+			caller => 'main',
+		);
+		is( $newtype->inner_type->name, 'Int' );
+	};
+};
+
+describe "attribute `kind`" => sub {
+
+	tests 'it works' => sub {
+
+		my $newtype = $CLASS->new(
+			inner  => Int,
+			name   => 'MyInt2',
+			caller => 'main',
+		);
+		is( $newtype->kind, 'Counter', 'implicit' );
+
+		my $newtype2 = $CLASS->new(
+			inner  => Int,
+			name   => 'MyInt3',
+			caller => 'main',
+			kind   => 'String',
+		);
+		is( $newtype2->kind, 'String', 'explicit' );
+	};
+};
+
 
 done_testing;

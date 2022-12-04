@@ -21,7 +21,6 @@ sub _exporter_fail {
 
 	$opts->{caller} = $caller;
 	$opts->{name}   = $name;
-	$opts->{class}  = $class->_make_newclass_name( $opts );
 
 	my $type = $class->new( $opts );
 
@@ -30,7 +29,7 @@ sub _exporter_fail {
 		: ( $Type::Registry::DELAYED{$caller}{$type->name} = $type )
 		unless( ref($caller) or $caller eq '-lexical' or $globals->{'lexical'} );
 
-	return map +( $_->{name} => $_->{code} ), @{ $type->newtype_exportables };
+	return map +( $_->{name} => $_->{code} ), @{ $type->_newtype_exportables };
 }
 
 sub new {
@@ -49,6 +48,8 @@ sub new {
 	elsif ( is_Str $opts{inner} ) {
 		$opts{inner} = 'Type::Tiny::Class'->new( class => $opts{inner} );
 	}
+
+	$opts{class} = $class->_make_newclass_name( \%opts );
 
 	return $class
 		->SUPER::new( %opts )
@@ -77,7 +78,7 @@ sub _build_kind {
 	die "Could not determine kind of inner type. Specify 'kind' option";
 }
 
-sub newtype_exportables {
+sub _newtype_exportables {
 	my $self = shift;
 	my $inner_type = $self->inner_type;
 	my @exportables = @{ $self->exportables( @_ ) };
