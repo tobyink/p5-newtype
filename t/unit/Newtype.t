@@ -240,5 +240,6 @@ describe "attribute `kind`" => sub {
 	};
 };
 
+# TODO: need to test underscore methods too!
 
 done_testing;
