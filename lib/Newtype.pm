@@ -13,7 +13,7 @@ use parent 'Type::Tiny::Class';
 use B qw( perlstring );
 use Eval::TypeTiny qw( eval_closure set_subname );
 use Types::Common qw( -types -is );
-#use namespace::autoclean;
+use namespace::autoclean;
 
 sub _exporter_fail {
 	my ( $class, $name, $opts, $globals ) = @_;
@@ -38,7 +38,7 @@ sub new {
 
 	if ( is_Object $class ) {
 		my $real_class = $class->class;
-		return $real_class->new( @_ );
+		return $real_class->new( $class->inner_type->( shift ) );
 	}
 
 	my %opts = ( @_ == 1 and is_HashRef $_[0] ) ? %{ $_[0] } : @_;
@@ -79,12 +79,14 @@ sub _build_kind {
 
 sub newtype_exportables {
 	my $self = shift;
+	my $inner_type = $self->inner_type;
 	my @exportables = @{ $self->exportables( @_ ) };
 	for my $e ( @exportables ) {
 		if ( $e->{tags}[0] eq 'types' ) {
 			$e->{code} = sub (;$) {
 				my ( $inner_value, @rest ) = @_
 					or return $self;
+				$inner_type->( $inner_value );
 				my $wrapped_value = bless( \$inner_value, $self->{class} );
 				wantarray ? ( $wrapped_value, @rest ) : $wrapped_value;
 			};
