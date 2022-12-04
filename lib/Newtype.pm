@@ -487,10 +487,6 @@ Other supported options are:
 A hashref of methods to add to the newtype. Keys are the method names.
 Values are coderefs.
 
-=item C<coercions>
-
-(TODO)
-
 =item C<kind>
 
 This allows you to give Newtype a hint for how to delegate to the inner
@@ -507,7 +503,7 @@ into your namespace. You can create instances of the newtype using:
 
   Foo( $inner_value )
 
-Where C<< $inner_value >> is an instance of the thing you're wrapping.
+Where C<< $inner_value >> is an instance of the type you're wrapping.
 
 For example:
 
@@ -570,7 +566,7 @@ The kind of delegation being used.
 
 The object returned by C<< MyNewtype() >> is also a L<Type::Tiny> object,
 so you can call any method from L<Type::Tiny>, such as
-C<< MyNewtype->check( $value ) >>.
+C<< MyNewtype->check( $value ) >> or C<< MyNewtype->coerce( $value ) >>.
 
 =head1 BUGS
 
