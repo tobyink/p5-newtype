@@ -76,7 +76,7 @@ describe "method `_exporter_fail`" => sub {
 		};
 
 		subtest 'is_TestHash( $thing ) seems to work' => sub {
-			lives { $func{assert_TestHash}->( $func{TestHash}->( {} ) ) };
+			lives { $func{assert_TestHash}->( $func{TestHash}->( {} ) ) } or fail;
 			my $e = dies { $func{assert_TestHash}->( {} ) };
 			like $e, qr/did not pass type constraint/;
 		};
