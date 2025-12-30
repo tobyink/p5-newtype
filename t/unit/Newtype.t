@@ -379,7 +379,7 @@ describe "method `_build_kind`" => sub {
 	};
 };
 
-# TODO: _newtype_exportables
+# TODO: exportables
 
 describe "method `_make_newclass_name`" => sub {
 
