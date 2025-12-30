@@ -4,9 +4,10 @@
 	issued  2022-12-04;
 	label   "Initial release".
 
-`Newtype 0.002 cpan:TOBYINK`
+`Newtype 0.002000 cpan:TOBYINK`
 	issued  2025-12-30;
 	changeset [
+		item "Switch to six decimal digit version numbers."^^Packaging;
 		item "Support defining coercions for newtypes."^^Change;
 		item "Override Type::Tiny's exportables method."^^Change;
 	];
