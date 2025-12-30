@@ -10,5 +10,5 @@
 		item "Switch to six decimal digit version numbers."^^Packaging;
 		item "Support defining coercions for newtypes."^^Change;
 		item "Override Type::Tiny's exportables method."^^Change;
-	];
+	].
 
