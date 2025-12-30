@@ -5,7 +5,7 @@ use warnings;
 package Newtype;
 
 our $AUTHORITY = 'cpan:TOBYINK';
-our $VERSION   = '0.001';
+our $VERSION   = '0.002';
 
 use Type::Tiny::Class 2.000000;
 use parent 'Type::Tiny::Class';
